@@ -1,43 +1,27 @@
 # Agents Automation
 
-A multi-role LLM assistant for office work. It answers questions from company documents,
-summarizes the team chat, and interviews employees to turn a described workflow into a
-**validated step list**. All three roles run on one guarded core. This repository is about
-those guard rails:
+A multi-role LLM assistant for office work. It answers questions from company documents, summarizes the team chat, and interviews employees to turn a described workflow into a validated step list. All three roles run on one guarded core. This repository is about those guard rails:
 
-- **It cannot act outside its plan.** A plan is fixed and hashed before the role's model reads
-  a word of user text. On a shared chat surface (an entry point such as the office chat, fixed
-  by the calling platform), text can pick which of that surface's roles answers, but never what
-  a role may do.
-- **It answers only from what the asker may read.** Access control runs inside the SQL of both
-  searches, and an answer must cite passages it was actually given.
-- **Confidential data stays with cleared models.** Every knowledge and summarizer call goes to
-  a model cleared for the highest label among its inputs, and the user's question counts as
-  internal data. If no model is cleared, nothing is sent.
-- **It does not claim what did not happen.** A "saved" claim is checked against a ledger of
-  what the code did. A promise to email or remind someone is caught, because no tool for it
-  exists.
-- **Planted instructions are stopped.** In a finished step list the full three-layer screen
-  holds them for a human. In documents and chat messages, text that matches the pattern layer is
-  quarantined before any model sees it.
-- **Every guard is proven by breaking it.** 111 unit mutants and 8 eval mutants each switch one
-  guard off, and the tests or the scenario gate turn red every time.
+- **It cannot act outside its plan.** A plan is fixed and hashed before the role's model reads a word of user text. On a shared chat surface (an entry point such as the office chat, fixed by the calling platform), text can pick which of that surface's roles answers, but never what a role may do.
+- **It answers only from what the asker may read.** Access control runs inside the SQL of both searches, and an answer must cite passages it was actually given.
+- **Confidential data stays with cleared models.** Every knowledge and summarizer call goes to a model cleared for the highest label among its inputs, and the user's question counts as internal data. If no model is cleared, nothing is sent.
+- **It does not claim what did not happen.** A "saved" claim is checked against a ledger of what the code did. A promise to email or remind someone is caught, because no tool for it exists.
+- **Planted instructions are stopped.** In a finished step list the full three-layer screen holds them for a human. In documents and chat messages, text that matches the pattern layer is quarantined before any model sees it.
+- **Every guard is proven by breaking it.** 111 unit mutants and 8 eval mutants each switch one guard off, and the tests or the scenario gate turn red every time.
 
-> This is a generic re-implementation of patterns I designed and built for a production system
-> under NDA. No code, prompts or data from that system are included. All data here is
-> synthetic and hand-written for this repository.
+This is an independent project, written from scratch on my own time. It contains no employer code, prompts or data. All data here is synthetic and hand-written for this repository.
 
 ## What is inside
 
 | Piece | Where | What it guards |
-|---|---|---|
-| Guarded core | `intent.py`, `pipeline/` | Intent router, then plan from a fixed template, seal (hash), default-deny authorization, and an executor that re-checks every step and passes values only. |
-| Knowledge Q&A role | `knowledge/` | SQLite + FTS5 store with access control in SQL, hybrid BM25 + vector search fused with reciprocal rank fusion, an optional reranker, a grounded-answer gate, idempotent ingest. |
-| Summarizer role | `summarizer/` | Members-only channels, timezone-anchored days, summaries-first reading (month, week, day, then the raw tail), a citation judge, and a fallback digest written by code. |
-| Interviewer role | `interview/` | The honesty guard (claims vs ledger), promise and repetition checks (at most one correction per turn), and a step-list validator with bounded repair. |
-| Injection screen | `injection/` | Layer 1 patterns hold without a model call, Layer 2 decides whether a judge is needed, Layer 3 is an LLM judge that fails open but flagged. |
-| Data boundary, turn budget | `llm/boundary.py`, `budget.py` | Sensitivity labels and cleared placements; a per-turn deadline that skips optional calls and reports every skip. |
-| Eval harness | `evals/` | 19 scenarios, every one run at least twice (PASS / FLAKY / FAIL / VOID), hard gates, a cross-family rubric judge, and mutants. |
+| --- | --- | --- |
+| Guarded core | `intent.py`, `pipeline/` | Intent router, then plan from a fixed template, seal (hash), default-deny authorization, and an executor that re-checks every step and passes values only |
+| Knowledge Q&A role | `knowledge/` | SQLite + FTS5 store with access control in SQL, hybrid BM25 + vector search fused with reciprocal rank fusion, an optional reranker, a grounded-answer gate, idempotent ingest |
+| Summarizer role | `summarizer/` | Members-only channels, timezone-anchored days, summaries-first reading (month, week, day, then the raw tail), a citation judge, and a fallback digest written by code |
+| Interviewer role | `interview/` | The honesty guard (claims vs ledger), promise and repetition checks (at most one correction per turn), and a step-list validator with bounded repair |
+| Injection screen | `injection/` | Layer 1 patterns hold without a model call, Layer 2 decides whether a judge is needed, Layer 3 is an LLM judge that fails open but flagged |
+| Data boundary, turn budget | `llm/boundary.py`, `budget.py` | Sensitivity labels and cleared placements; a per-turn deadline that skips optional calls and reports every skip |
+| Eval harness | `evals/` | 19 scenarios, every one run at least twice (PASS / FLAKY / FAIL / VOID), hard gates, a cross-family rubric judge, and mutants |
 
 ## Quickstart
 
@@ -85,9 +69,7 @@ assistant  > I can't answer this here: the documents it needs are not cleared fo
              available to me.
 ```
 
-In the excerpt, `wiki-note#1` and the chat message `m025` carry "IGNORE PREVIOUS INSTRUCTIONS"
-text, so they never reach a model. The interviewer's first reply promised to email a summary;
-the promise check sent it back once, and the corrected reply is what the user sees.
+In the excerpt, `wiki-note#1` and the chat message `m025` carry "IGNORE PREVIOUS INSTRUCTIONS" text, so they never reach a model. The interviewer's first reply promised to email a summary; the promise check sent it back once, and the corrected reply is what the user sees.
 
 Excerpt of `agents-demo`:
 
@@ -138,110 +120,38 @@ office-routing            yes   PASS PASS       PASS
 GATE: PASS
 ```
 
-`terse-flaky` is FLAKY on purpose: its two scripted runs differ, which a single run would
-have hidden.
+`terse-flaky` is FLAKY on purpose: its two scripted runs differ, which a single run would have hidden.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    T[trusted request: surface, user, session] --> IR[intent router: rules, then classifier]
-    IR -->|one of the surface's roles, or clarify| P[plan from template] --> S[seal: hash structure]
-    S --> A[authorize: default deny]
-    A --> X{{untrusted zone}}
-    X --> K[knowledge: ACL-scoped search, RRF, rerank, grounded answer]
-    X --> SU[summarizer: members only, month/week/day/raw, cited summary]
-    X --> I[interviewer: one call, JSON actions, ledger]
-    I --> C[checks: honesty > promise > repetition, one correction]
-    I --> F[finalize: validate + repair, screen, status, submit]
-    K --> B[data boundary: cleared model or nothing]
-    SU --> B
-```
-
-Walk-through: [docs/architecture.md](docs/architecture.md). Why each guard is built the way it
-is: [docs/design-notes.md](docs/design-notes.md).
+Walk-through: [docs/architecture.md](docs/architecture.md). Why each guard is built the way it is: [docs/design-notes.md](docs/design-notes.md).
 
 ## How it is tested
 
-- **986 tests, all offline.** The suite blocks outbound connections. The model seam is the
-  only way to reach a model, and the fakes sit exactly at that seam.
-- **Contract tables.** The save-claim, promise and injection detectors are defined by
-  synthetic MUST-FIRE / MUST-NOT-FIRE tables, and the intent rules by a routing table. Access
-  control gets cross-user tables, and accepted false positives are pinned as such.
-- **Unit mutants.** `scripts/mutate_guards.py` flips 111 critical guards one at a time in a
-  temp copy, and each must be killed by its named test. All 111 are killed.
-- **Eval mutants.** `agents-eval --mutant NAME` runs the scenarios with one guard switched off
-  and succeeds only if the hard gate fails. There are 8: claim detection, injection screening,
-  validation, access control, data boundary, grounded answers, summary citations, promises. A
-  test pins exactly which scenarios each one must fail.
-- **Static checks.** ruff, mypy `--strict`, and six import-linter contracts. One of them: the
-  three roles never import each other.
+- **986 tests, all offline.** The suite blocks outbound connections. The model seam is the only way to reach a model, and the fakes sit exactly at that seam.
+- **Contract tables.** The save-claim, promise and injection detectors are defined by synthetic MUST-FIRE / MUST-NOT-FIRE tables, and the intent rules by a routing table. Access control gets cross-user tables, and accepted false positives are pinned as such.
+- **Unit mutants.** `scripts/mutate_guards.py` flips 111 critical guards one at a time in a temp copy, and each must be killed by its named test. All 111 are killed.
+- **Eval mutants.** `agents-eval --mutant NAME` runs the scenarios with one guard switched off and succeeds only if the hard gate fails. There are 8: claim detection, injection screening, validation, access control, data boundary, grounded answers, summary citations, promises. A test pins exactly which scenarios each one must fail.
+- **Static checks.** ruff, mypy --strict, and six import-linter contracts. One of them: the three roles never import each other.
 
 CI runs all of the above offline: [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
-## From the production system
-
-The production system these patterns come from is not public. Three figures from it, which
-cannot be reproduced from this repository:
-
-- **About 97% lower LLM cost per interview** after a model bake-off.
-- **7 of 7 attacks held, 0 of 36 legitimate records blocked** in the injection study.
-- **12,500+ automated tests** in that codebase (this repository has its own, much smaller suite).
-
-## What I did on the production platform
-
-- Designed the platform architecture: one guarded core with deterministic routing and
-  planning, and isolated roles with enforced layering.
-- Built the LLM pipelines: structured side-outputs, honesty and promise checks, prompt design
-  and corrective loops.
-- Built hybrid RAG retrieval with access control before retrieval, reranking and grounded
-  answers.
-- Built the evaluation and safety harnesses: simulated users, cross-family judges, multi-run
-  verdicts, injection screening and mutation checks.
-- Ran model selection and cost work: a model bake-off and model routing by data sensitivity.
-- Set the engineering discipline: 12,500+ tests, CI-parity runs and review gates.
-
 ## Limitations
 
-- **English only.** The detectors and the intent rules are regular expressions tuned on the
-  synthetic tables here.
-- **Detectors err towards firing.** The save-claim and promise detectors flag a few innocent
-  sentences, each costing one unneeded corrective call; those sentences are pinned in the
-  tests.
-- **The Layer 2 prefilter is a word list,** so it cannot be complete: a planted note phrased in
-  none of its words skips the judge. The same goes for spelling tricks the normaliser does not
-  fold (for example digits for letters, "APPR0VED"). A deployment that cannot accept that gap
-  should send every record to the judge.
-- **Offline, every model is a deterministic stand-in.** The embedder is a hashed bag of words,
-  not a semantic model. The answerer quotes the best-covering sentence, and the summary writer
-  keeps decision sentences. This proves the guard logic, not model quality.
-- **Live mode is limited.** `--live` replaces the interviewer, the simulated users and the
-  judges. The role scenarios always run on the offline stand-ins, and no live results are
-  published here.
-- **Only the knowledge and summarizer calls are label-routed.** The interviewer, the intent
-  classifier (which must be cleared for internal data), the injection judge and the repairer
-  see the user's own text and are configured by the operator, not routed by label.
-- **Documents and chat get the pattern layer only.** Text that matches it is quarantined, but
-  documents and chat messages do not go through the prefilter or the judge. Subtler planted
-  text can reach the answer and summary prompts, inside the untrusted fence.
-- **The office chat runs single interview turns.** It keeps each user's history, but finalize
-  (validation, screening, submission) happens on the interview surface.
-- **The summarizer has defaults.** Without a channel it reads `#general`, and without a period
-  it recognises, the last 7 days. A request that names more than one period gets a question
-  back instead of a guess.
-- **Labels and clearances are declared, not verified.** Sensitivity labels come with the data
-  and placements come from configuration. Model families are declared too: the harness
-  refuses a judge whose declared family matches the interviewer's, but it cannot verify what
-  an endpoint really serves.
-- **Small stand-ins for real infrastructure.** An in-memory store and SQLite replace real
-  storage. Ingest updates and removes chunks of the documents it is given, but it does not
-  delete documents that disappeared from the corpus.
-- **No hold release.** A held session stays held; releasing it is a security reviewer's job
-  and has no tool here.
-- **A Layer 1 false positive costs a human review, by design.** It never deletes anything.
-  Known false positives are listed in the tests as an accepted trade-off.
-- **No authentication here.** User ids and roles come from the request envelope, which the
-  calling platform is trusted to authenticate.
+- **English only.** The detectors and the intent rules are regular expressions tuned on the synthetic tables here.
+- **Detectors err towards firing.** The save-claim and promise detectors flag a few innocent sentences, each costing one unneeded corrective call; those sentences are pinned in the tests.
+- **The Layer 2 prefilter is a word list,** so it cannot be complete: a planted note phrased in none of its words skips the judge. The same goes for spelling tricks the normaliser does not fold (for example digits for letters, "APPR0VED"). A deployment that cannot accept that gap should send every record to the judge.
+- **Offline, every model is a deterministic stand-in.** The embedder is a hashed bag of words, not a semantic model. The answerer quotes the best-covering sentence, and the summary writer keeps decision sentences. This proves the guard logic, not model quality.
+- **Live mode is limited.** `--live` replaces the interviewer, the simulated users and the judges. The role scenarios always run on the offline stand-ins, and no live results are published here.
+- **Only the knowledge and summarizer calls are label-routed.** The interviewer, the intent classifier (which must be cleared for internal data), the injection judge and the repairer see the user's own text and are configured by the operator, not routed by label.
+- **Documents and chat get the pattern layer only.** Text that matches it is quarantined, but documents and chat messages do not go through the prefilter or the judge. Subtler planted text can reach the answer and summary prompts, inside the untrusted fence.
+- **The office chat runs single interview turns.** It keeps each user's history, but finalize (validation, screening, submission) happens on the interview surface.
+- **The summarizer has defaults.** Without a channel it reads #general, and without a period it recognises, the last 7 days. A request that names more than one period gets a question back instead of a guess.
+- **Labels and clearances are declared, not verified.** Sensitivity labels come with the data and placements come from configuration. Model families are declared too: the harness refuses a judge whose declared family matches the interviewer's, but it cannot verify what an endpoint really serves.
+- **Small stand-ins for real infrastructure.** An in-memory store and SQLite replace real storage. Ingest updates and removes chunks of the documents it is given, but it does not delete documents that disappeared from the corpus.
+- **No hold release.** A held session stays held; releasing it is a security reviewer's job and has no tool here.
+- **A Layer 1 false positive costs a human review, by design.** It never deletes anything. Known false positives are listed in the tests as an accepted trade-off.
+- **No authentication here.** User ids and roles come from the request envelope, which the calling platform is trusted to authenticate.
 
 ## Running live (optional)
 
@@ -252,9 +162,7 @@ set -a; . ./.env; set +a
 uv run agents-eval --live --runs 2
 ```
 
-The interviewer, the simulated users and the Layer 3 injection judge use Anthropic. The rubric
-judge uses any OpenAI-compatible endpoint, and it must declare a different family.
-`OpenAICompatibleEmbedder` can provide real embeddings for the knowledge role.
+The interviewer, the simulated users and the Layer 3 injection judge use Anthropic. The rubric judge uses any OpenAI-compatible endpoint, and it must declare a different family. `OpenAICompatibleEmbedder` can provide real embeddings for the knowledge role.
 
 ## Project layout
 
@@ -294,6 +202,6 @@ uv run python scripts/mutate_guards.py
 
 ## License and author
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). Author: Stanislav Kim.
 
-LinkedIn: https://www.linkedin.com/in/stanislav-kim-ai/
+LinkedIn: [linkedin.com/in/stanislav-kim-ai](https://www.linkedin.com/in/stanislav-kim-ai/)
