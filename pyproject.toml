@@ -1,0 +1,162 @@
+[project]
+name = "agents-automation"
+version = "0.1.0"
+description = "Guard rails for a multi-role LLM office assistant: grounded document Q&A, team-chat summaries and workflow interviews."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2.7,<3"]
+
+[project.optional-dependencies]
+# Only needed for `--live` runs. Tests and CI never install or call these.
+live = ["anthropic>=0.40", "openai>=1.50"]
+
+[project.scripts]
+agents-demo = "agents_automation.demo:main"
+agents-eval = "agents_automation.evals.runner:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.8", "mypy>=1.13", "import-linter>=2.1"]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agents_automation"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PT", "N"]
+
+[tool.ruff.lint.per-file-ignores]
+# The save-claim detector must match typographic apostrophes and dashes on purpose.
+"src/agents_automation/interview/honesty.py" = ["RUF001"]
+"src/agents_automation/interview/checks.py" = ["RUF001"]
+"tests/test_checks.py" = ["RUF001"]
+"tests/test_honesty_detector.py" = ["RUF001"]
+# The look-alike folding table lists Cyrillic/Greek letters on purpose.
+"src/agents_automation/llm/text.py" = ["RUF001"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "scripts"]
+plugins = ["pydantic.mypy"]
+
+[tool.importlinter]
+root_package = "agents_automation"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "llm is a leaf: it imports nothing else from the project"
+type = "forbidden"
+source_modules = ["agents_automation.llm"]
+forbidden_modules = [
+    "agents_automation.models",
+    "agents_automation.conversation",
+    "agents_automation.offline",
+    "agents_automation.console",
+    "agents_automation.pipeline",
+    "agents_automation.interview",
+    "agents_automation.injection",
+    "agents_automation.evals",
+    "agents_automation.finalize",
+    "agents_automation.demo",
+    "agents_automation.knowledge",
+    "agents_automation.summarizer",
+    "agents_automation.intent",
+    "agents_automation.budget",
+    "agents_automation.directory",
+    "agents_automation.offline_roles",
+    "agents_automation.assistant",
+    "agents_automation.office",
+    "agents_automation.office_demo",
+]
+
+[[tool.importlinter.contracts]]
+name = "pipeline (trusted zone + executor) never depends on the conversation layer"
+type = "forbidden"
+source_modules = ["agents_automation.pipeline"]
+forbidden_modules = [
+    "agents_automation.interview",
+    "agents_automation.conversation",
+    "agents_automation.offline",
+    "agents_automation.injection",
+    "agents_automation.evals",
+    "agents_automation.finalize",
+    "agents_automation.demo",
+    "agents_automation.knowledge",
+    "agents_automation.summarizer",
+    "agents_automation.intent",
+    "agents_automation.directory",
+    "agents_automation.offline_roles",
+    "agents_automation.assistant",
+    "agents_automation.office",
+    "agents_automation.office_demo",
+]
+
+[[tool.importlinter.contracts]]
+name = "injection screening is independent of the interview loop"
+type = "forbidden"
+source_modules = ["agents_automation.injection"]
+forbidden_modules = [
+    "agents_automation.interview",
+    "agents_automation.conversation",
+    "agents_automation.offline",
+    "agents_automation.evals",
+    "agents_automation.finalize",
+    "agents_automation.demo",
+    "agents_automation.knowledge",
+    "agents_automation.summarizer",
+]
+
+[[tool.importlinter.contracts]]
+name = "nothing in the product imports the eval harness"
+type = "forbidden"
+source_modules = [
+    "agents_automation.llm",
+    "agents_automation.pipeline",
+    "agents_automation.interview",
+    "agents_automation.injection",
+    "agents_automation.finalize",
+    "agents_automation.demo",
+    "agents_automation.conversation",
+    "agents_automation.offline",
+    "agents_automation.console",
+    "agents_automation.models",
+    "agents_automation.knowledge",
+    "agents_automation.summarizer",
+    "agents_automation.intent",
+    "agents_automation.budget",
+    "agents_automation.directory",
+    "agents_automation.offline_roles",
+    "agents_automation.assistant",
+    "agents_automation.office",
+    "agents_automation.office_demo",
+]
+forbidden_modules = ["agents_automation.evals"]
+
+[[tool.importlinter.contracts]]
+name = "the roles never import each other"
+type = "independence"
+modules = [
+    "agents_automation.interview",
+    "agents_automation.knowledge",
+    "agents_automation.summarizer",
+]
+
+[[tool.importlinter.contracts]]
+name = "no static import of provider SDKs (live adapters load them lazily)"
+type = "forbidden"
+source_modules = ["agents_automation"]
+forbidden_modules = ["anthropic", "openai"]

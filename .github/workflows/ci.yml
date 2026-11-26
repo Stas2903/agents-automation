@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install (locked, offline extras not needed)
+        run: |
+          uv python install 3.12
+          uv sync --frozen
+
+      - name: Lint and format
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Types
+        run: uv run mypy
+
+      - name: Layering contracts
+        run: uv run lint-imports
+
+      - name: Tests (offline; network is blocked inside the suite)
+        run: uv run pytest -q
+
+      - name: Mutation check of the critical guards
+        run: uv run python scripts/mutate_guards.py
+
+      - name: Demo smoke run
+        run: uv run agents-demo --all
+
+      - name: Eval harness gate
+        run: uv run agents-eval --runs 2
+
+      - name: Eval harness catches every mutant
+        run: |
+          for mutant in claims-without-saving no-injection-screen skip-validation \
+            acl-off boundary-off ungrounded-answers summary-citations-unchecked \
+            promises-unchecked; do
+            uv run agents-eval --runs 2 --mutant "$mutant"
+          done

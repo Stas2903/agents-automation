@@ -1,0 +1,12 @@
+{
+  "synthetic": true,
+  "note": "Hand-written for this repository. User ids are roles, not people.",
+  "users": {
+    "u-staff": ["all"],
+    "u-finance": ["all", "finance"],
+    "u-hr": ["all", "hr"],
+    "u-it": ["all", "it"],
+    "u-lead": ["all", "leads"],
+    "u-office": ["all", "leads", "office"]
+  }
+}
