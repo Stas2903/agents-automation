@@ -50,7 +50,10 @@ class OfficeAssistant:
     def handle(
         self, user_id: str, text: str, *, session_id: str, budget: TurnBudget | None = None
     ) -> AssistantReply:
-        routed = pick_role(SURFACE, text, self.classifier)
+        open_interview = bool(self._history.get((session_id, user_id)))
+        routed = pick_role(
+            SURFACE, text, self.classifier, continuing="interviewer" if open_interview else None
+        )
         if routed.role is None:
             return AssistantReply(None, routed.how, CLARIFY_REPLY, routed.reason)
         if routed.role == "knowledge":

@@ -2,8 +2,9 @@
 classifier. They read the same prompts a real model would get and answer in the same JSON, so
 the demo, the tests and CI exercise the real code paths offline.
 
-They are deliberately simple: the extractive answerer only answers when one source sentence
-covers most of the question's words, and declines otherwise, like a careful model would.
+They are deliberately simple: the extractive answerer only answers when one source sentence,
+read under its section heading, covers most of the question's words, and declines otherwise,
+like a careful model would.
 """
 
 from __future__ import annotations
@@ -46,13 +47,22 @@ def _extractive_answer(messages: Sequence[Message]) -> str:
     text = _all_text(messages)
     q = _QUESTION.search(text)
     question = q.group("q") if q else ""
-    best: tuple[float, str, str] | None = None
+    # A sentence is read under its heading path, as a reader would ("Salary bands > Bands"
+    # answers "What are the salary bands?"). Ties go to the section whose own heading matches,
+    # then to the sentence that matches by itself.
+    best: tuple[tuple[float, float, float], str, str] | None = None
     for m in _PASSAGE.finditer(text):
+        heading = m.group("heading")
+        section = heading.rsplit(">", 1)[-1]
         for sentence in _SENTENCES.split(m.group("text")):
-            score = coverage(question, sentence)
+            score = (
+                coverage(question, f"{heading} {sentence}"),
+                coverage(question, section),
+                coverage(question, sentence),
+            )
             if best is None or score > best[0]:
                 best = (score, sentence.strip(), m.group("id"))
-    if best is None or best[0] < COVERAGE_NEEDED:
+    if best is None or best[0][0] < COVERAGE_NEEDED:
         return json.dumps({"answer": None, "citations": []})
     return json.dumps({"answer": best[1], "citations": [best[2]]})
 

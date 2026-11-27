@@ -1,18 +1,24 @@
-"""The office-chat demo: one surface, three roles, each guard visible in the output."""
+"""The office-chat demo: one surface, three roles, each guard visible in the output. Also the
+interactive chat (``agents-demo --chat``) on the same offline setup."""
 
 from __future__ import annotations
 
 import json
 import textwrap
+from collections.abc import Callable, Iterable, Sequence
 
 from agents_automation.assistant import AssistantReply, OfficeAssistant
 from agents_automation.intent import classifier_answer
 from agents_automation.interview.turn import Interviewer
+from agents_automation.knowledge.ingest import load_documents
+from agents_automation.llm import Message
 from agents_automation.llm.boundary import PlacedModel
-from agents_automation.llm.fakes import ScriptedModel
+from agents_automation.llm.fakes import RuleModel, ScriptedModel
 from agents_automation.office import (
     EXTERNAL,
     SELF_HOSTED,
+    TODAY,
+    OfficeData,
     build_office_data,
     knowledge_role,
     summarizer_role,
@@ -44,13 +50,16 @@ def _wrap(prefix: str, text: str) -> list[str]:
     return out
 
 
-def _render(user: str, text: str, got: AssistantReply) -> list[str]:
-    lines = _wrap(user, text)
+def _outcome(got: AssistantReply) -> list[str]:
     route = f"{got.role} (by {got.how})" if got.role else f"clarify (by {got.how})"
-    lines.append(f"{'':13}[routed to {route}; {got.detail}]")
+    lines = [f"{'':13}[routed to {route}; {got.detail}]"]
     lines.extend(f"{'':13}[{skip}]" for skip in got.skips)
     lines.extend(_wrap("assistant", got.reply))
     return lines
+
+
+def _render(user: str, text: str, got: AssistantReply) -> list[str]:
+    return _wrap(user, text) + _outcome(got)
 
 
 def render_office_demo() -> str:
@@ -97,3 +106,61 @@ def render_office_demo() -> str:
     lines.append(f"{'':13}[{answer.status}: {note}]")
     lines.extend(_wrap("assistant", answer.reply))
     return "\n".join(lines)
+
+
+CHAT_QUIT = frozenset({"/quit", "/exit"})
+CHAT_QUESTIONS = (
+    "Sure. What is the first step, and who does it?",
+    "Noted. What happens next, and who does it?",
+    "Does anything else happen before that step is done?",
+    "Is anyone else involved, or is that the end of it?",
+)
+
+
+def _chat_question(messages: Sequence[Message]) -> str:
+    asked = sum(m.role == "assistant" for m in messages)  # consecutive replies never repeat
+    question = CHAT_QUESTIONS[asked % len(CHAT_QUESTIONS)]
+    return json.dumps({"reply": question, "actions": []})
+
+
+def chat_banner(data: OfficeData, user: str) -> list[str]:
+    groups = data.directory.groups(user)
+    docs = [d.title for d in load_documents() if not groups.isdisjoint(d.groups)]
+    channels = [
+        f"#{c.name}" for c in data.chat.channels.values() if not groups.isdisjoint(c.member_groups)
+    ]
+    return [
+        f"=== The office chat as {user}  [offline, synthetic data, today is {TODAY.isoformat()}]",
+        *_wrap("documents", ", ".join(docs) or "none (this user is in no group)"),
+        *_wrap("channels", ", ".join(channels) or "none"),
+        *_wrap(
+            "how",
+            "Ask a question, ask for a summary of a channel, or describe a workflow. "
+            "/ask, /summarize and /describe pick a role directly; /quit leaves. Offline there "
+            "is no intent classifier, so a message no rule recognises gets a question back.",
+        ),
+    ]
+
+
+def run_chat(
+    user: str, messages: Iterable[str], write: Callable[[str], None], *, echo: bool = False
+) -> None:
+    """The office chat for typed messages, on the same offline stand-ins as the demo. ``echo``
+    repeats each message (for piped input, where nobody saw it typed)."""
+    data = build_office_data()
+    assistant = OfficeAssistant(
+        knowledge=knowledge_role(data),
+        summarizer=summarizer_role(data),
+        interviewer=Interviewer(RuleModel("offline-interviewer", _chat_question), InMemoryStore()),
+        classifier=None,
+    )
+    for line in chat_banner(data, user):
+        write(line)
+    for raw in messages:
+        text = raw.strip()
+        if text.lower() in CHAT_QUIT:
+            return
+        if text:
+            got = assistant.handle(user, text, session_id="chat")
+            for line in _render(user, text, got) if echo else _outcome(got):
+                write(line)

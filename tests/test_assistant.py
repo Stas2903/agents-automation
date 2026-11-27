@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import itertools
 import json
 
 import pytest
@@ -11,9 +13,13 @@ from agents_automation.demo import main as demo_main
 from agents_automation.intent import CLARIFY_REPLY, classifier_answer
 from agents_automation.interview.turn import Interviewer
 from agents_automation.knowledge.role import NO_SOURCE_REPLY
+from agents_automation.llm import Message
 from agents_automation.llm.boundary import PlacedModel
 from agents_automation.llm.fakes import ScriptedModel
+from agents_automation.llm.text import fence_untrusted
 from agents_automation.office import SELF_HOSTED, build_office_data, knowledge_role, summarizer_role
+from agents_automation.office_demo import CHAT_QUESTIONS, run_chat
+from agents_automation.offline_roles import extractive_answerer
 from agents_automation.pipeline.tools import InMemoryStore
 
 
@@ -93,3 +99,155 @@ def test_all_includes_the_interviews_and_the_office_chat(
     out = capsys.readouterr().out
     assert "=== A cooperative employee" in out
     assert "=== The office chat" in out
+
+
+# --- follow-ups in an open interview ----------------------------------------------------
+
+
+def test_a_follow_up_continues_the_interview_with_its_history() -> None:
+    assistant = _assistant(interviewer_replies=("What is the first step?", "Who approves it?"))
+    assistant.handle("u-staff", "I want to describe how our expense process works", session_id="s")
+    got = assistant.handle("u-staff", "First I fill in the form", session_id="s")
+    assert (got.role, got.how, got.reply) == ("interviewer", "continue", "Who approves it?")
+    [_, second] = assistant.interviewer.model.calls  # type: ignore[attr-defined]
+    contents = [m.content for m in second]
+    assert fence_untrusted("I want to describe how our expense process works") in contents
+    assert "What is the first step?" in contents
+
+
+def test_another_user_or_another_session_does_not_continue_the_interview() -> None:
+    assistant = _assistant(
+        classifier_answer(None),
+        classifier_answer(None),
+        interviewer_replies=("What is the first step?",),
+    )
+    assistant.handle("u-staff", "I want to describe how our expense process works", session_id="s")
+    other_user = assistant.handle("u-hr", "First I fill in the form", session_id="s")
+    other_session = assistant.handle("u-staff", "First I fill in the form", session_id="s2")
+    assert (other_user.role, other_user.how) == (None, "clarify")
+    assert (other_session.role, other_session.how) == (None, "clarify")
+
+
+# --- the offline answerer reads sentences under their headings ---------------------------
+
+
+def test_hr_gets_the_salary_bands_from_the_bands_section_not_the_reviews_one() -> None:
+    assistant = _assistant()
+    as_hr = assistant.handle("u-hr", "/ask What are the salary bands?", session_id="b1")
+    as_staff = assistant.handle("u-staff", "/ask What are the salary bands?", session_id="b2")
+    assert as_hr.detail == "answered; cites salary-bands#0"
+    assert as_hr.reply == (
+        "Band A covers junior roles, band B covers experienced roles, and band C covers senior "
+        "and lead roles. (Sources: Salary bands > Bands)"
+    )
+    assert as_staff.reply == NO_SOURCE_REPLY  # the heading never widens what a user may read
+
+
+@pytest.mark.parametrize(
+    ("question", "detail"),
+    [
+        ("/ask What is the expense limit?", "answered; cites expense-policy#0"),
+        ("/ask Who approves expenses?", "answered; cites expense-policy#2"),
+        ("/ask When do salary reviews happen?", "answered; cites salary-bands#1"),
+        ("/ask What are the bands of the office radio?", "no_source; cites -"),
+    ],
+)
+def test_heading_aware_answers_for_hr(question: str, detail: str) -> None:
+    assert _assistant().handle("u-hr", question, session_id="h").detail == detail
+
+
+def test_a_heading_match_alone_goes_to_the_sentence_that_matches_by_itself() -> None:
+    prompt = (
+        "Question: receipts needed?\n\n"
+        "[d#0] Receipts needed: Photos are fine. A receipt is needed above 25."
+    )
+    raw = extractive_answerer().complete([Message("user", prompt)], timeout_s=1)
+    assert json.loads(raw) == {"answer": "A receipt is needed above 25.", "citations": ["d#0"]}
+
+
+def test_a_heading_cannot_lift_a_sentence_over_the_bar_when_the_question_wants_more() -> None:
+    prompt = (
+        "Question: receipts needed for taxis at night?\n\n"
+        "[d#0] Receipts: A receipt is needed above 25."
+    )
+    raw = extractive_answerer().complete([Message("user", prompt)], timeout_s=1)
+    assert json.loads(raw) == {"answer": None, "citations": []}
+
+
+# --- agents-demo --chat -------------------------------------------------------------------
+
+
+def _chat(user: str, *lines: str, echo: bool = False) -> list[str]:
+    out: list[str] = []
+    run_chat(user, lines, out.append, echo=echo)
+    return out
+
+
+def test_the_chat_banner_lists_only_what_this_user_may_read() -> None:
+    staff = "\n".join(_chat("u-staff"))
+    hr = "\n".join(_chat("u-hr"))
+    nobody = "\n".join(_chat("u-nobody"))
+    assert "Salary bands" not in staff
+    assert "Salary bands" in hr
+    assert "#leads" not in staff
+    assert "#leads" in "\n".join(_chat("u-lead"))
+    assert "documents  > none (this user is in no group)" in nobody
+    assert "channels   > none" in nobody
+
+
+def test_the_chat_answers_typed_messages_and_continues_an_interview() -> None:
+    out = _chat(
+        "u-staff",
+        "When do I need a receipt?",
+        "I want to describe how our expense process works",
+        "First I fill in the form",
+        "Then my manager approves it",
+    )
+    routes = [line.strip() for line in out if line.strip().startswith("[routed")]
+    assert routes == [
+        "[routed to knowledge (by rule); answered; cites expense-policy#1]",
+        "[routed to interviewer (by rule); corrective: -]",
+        "[routed to interviewer (by continue); corrective: -]",
+        "[routed to interviewer (by continue); corrective: -]",
+    ]
+    replies = [line for line in out if line.startswith("assistant")]
+    assert replies[1:] == [f"assistant  > {q}" for q in CHAT_QUESTIONS[:3]]
+
+
+def test_the_chat_interviewer_never_asks_the_same_question_twice_in_a_row() -> None:
+    lines = ["/describe our expense process"] + [f"Step {i} happens" for i in range(9)]
+    out = _chat("u-staff", *lines)
+    replies = [line for line in out if line.startswith("assistant")]
+    assert len(replies) == 10
+    assert all(a != b for a, b in itertools.pairwise(replies))
+    assert not any("corrective: repetition" in line for line in out)
+
+
+def test_the_chat_skips_blank_lines_and_stops_at_quit() -> None:
+    out = _chat("u-staff", "", "   ", "When do I need a receipt?", "/QUIT", "hello")
+    assert sum(line.startswith("assistant") for line in out) == 1
+
+
+def test_piped_chat_input_is_echoed_so_the_transcript_reads_as_a_conversation() -> None:
+    out = _chat("u-staff", "When do I need a receipt?", echo=True)
+    i = out.index("u-staff    > When do I need a receipt?")
+    assert out[i + 1].strip() == "[routed to knowledge (by rule); answered; cites expense-policy#1]"
+
+
+def test_demo_chat_reads_stdin(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO("/ask When do salary reviews happen?\n"))
+    assert demo_main(["--chat", "--user", "u-hr"]) == 0
+    out = capsys.readouterr().out
+    assert "u-hr       > /ask When do salary reviews happen?" in out
+    assert "Salary reviews happen once a year in the spring." in out
+
+
+@pytest.mark.parametrize(
+    "argv", [["--chat", "--roles"], ["--chat", "--all"], ["--chat", "x"], ["--chat", "--user", "x"]]
+)
+def test_demo_chat_refuses_other_modes_and_unknown_users(argv: list[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        demo_main(argv)
+    assert exc.value.code == 2

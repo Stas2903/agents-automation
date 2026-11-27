@@ -282,3 +282,64 @@ def test_rule_matching_sees_through_lookalike_letters() -> None:
     disguised = "Can you " + chr(0x0455) + "ummarize the finance channel?"  # Cyrillic s
     routed = pick_role("office_chat", disguised, None)
     assert (routed.role, routed.how) == ("summarizer", "rule")
+
+
+# --- an open conversation keeps its follow-ups -----------------------------------------
+
+
+def test_a_follow_up_no_rule_claims_stays_with_the_open_interview_without_a_model() -> None:
+    classifier = ScriptedModel("classifier", [])  # any call would raise
+    routed = pick_role(
+        "office_chat",
+        "Then my manager approves it",
+        PlacedModel(classifier, SELF_HOSTED),
+        continuing="interviewer",
+    )
+    assert (routed.role, routed.how, routed.text) == (
+        "interviewer",
+        "continue",
+        "Then my manager approves it",
+    )
+    assert classifier.calls == []
+
+
+@pytest.mark.parametrize(
+    ("text", "role", "how"),
+    [
+        ("Do I need a receipt for that?", "knowledge", "rule"),
+        ("Catch me up on #general", "summarizer", "rule"),
+        ("/ask what is the travel limit", "knowledge", "command"),
+        ("/summarize #general", "summarizer", "command"),
+    ],
+)
+def test_a_command_or_another_roles_rule_still_leaves_the_open_interview(
+    text: str, role: str, how: str
+) -> None:
+    routed = pick_role("office_chat", text, None, continuing="interviewer")
+    assert (routed.role, routed.how) == (role, how)
+
+
+def test_rules_that_disagree_stay_with_the_open_role_when_it_is_one_of_them() -> None:
+    routed = pick_role(
+        "office_chat", "How do I describe the policy process?", None, continuing="interviewer"
+    )
+    assert (routed.role, routed.how) == ("interviewer", "continue")
+
+
+def test_rules_that_disagree_without_the_open_role_still_go_to_the_classifier() -> None:
+    classifier = ScriptedModel("classifier", [classifier_answer("summarizer")])
+    routed = pick_role(
+        "office_chat",
+        "Can I get a summary of the policy?",  # knowledge and summarizer rules, not interviewer
+        PlacedModel(classifier, SELF_HOSTED),
+        continuing="interviewer",
+    )
+    assert (routed.role, routed.how) == ("summarizer", "model")
+    assert "rules disagree: knowledge, summarizer" in routed.reason
+    assert len(classifier.calls) == 1
+
+
+@pytest.mark.parametrize("continuing", ["reviewer", "admin", ""])
+def test_an_open_role_the_surface_does_not_offer_is_never_reached(continuing: str) -> None:
+    routed = pick_role("office_chat", "Then my manager approves it", None, continuing=continuing)
+    assert (routed.role, routed.how) == (None, "clarify")

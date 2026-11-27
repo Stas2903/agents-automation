@@ -826,6 +826,55 @@ MUTANTS: tuple[Mutant, ...] = (
         "            if False:",
         "test_these_are_still_promises",
     ),
+    Mutant(
+        "an open role the surface does not offer is reachable",
+        f"{PKG}/intent.py",
+        "    if continuing in roles and (not matched or continuing in matched):",
+        "    if continuing and (not matched or continuing in matched):",
+        "test_an_open_role_the_surface_does_not_offer_is_never_reached",
+    ),
+    Mutant(
+        "the open role wins over rules that do not name it",
+        f"{PKG}/intent.py",
+        "    if continuing in roles and (not matched or continuing in matched):",
+        "    if continuing in roles:",
+        "test_rules_that_disagree_without_the_open_role_still_go_to_the_classifier",
+    ),
+    Mutant(
+        "a follow-up never continues the open interview",
+        f"{PKG}/assistant.py",
+        'continuing="interviewer" if open_interview else None',
+        "continuing=None",
+        "test_a_follow_up_continues_the_interview_with_its_history",
+    ),
+    Mutant(
+        "any user's interview in any session counts as open",
+        f"{PKG}/assistant.py",
+        "        open_interview = bool(self._history.get((session_id, user_id)))",
+        "        open_interview = bool(self._history)",
+        "test_another_user_or_another_session_does_not_continue_the_interview",
+    ),
+    Mutant(
+        "the offline answerer ignores headings",
+        f"{PKG}/offline_roles.py",
+        '                coverage(question, f"{heading} {sentence}"),',
+        "                coverage(question, sentence),",
+        "test_hr_gets_the_salary_bands_from_the_bands_section_not_the_reviews_one",
+    ),
+    Mutant(
+        "the offline answerer ignores which section's own heading matches",
+        f"{PKG}/offline_roles.py",
+        "                coverage(question, section),",
+        "                0.0,",
+        "test_hr_gets_the_salary_bands_from_the_bands_section_not_the_reviews_one",
+    ),
+    Mutant(
+        "the offline answerer breaks heading ties by order, not by the sentence",
+        f"{PKG}/offline_roles.py",
+        "                coverage(question, sentence),\n            )",
+        "                0.0,\n            )",
+        "test_a_heading_match_alone_goes_to_the_sentence_that_matches_by_itself",
+    ),
 )
 
 _FAILED = re.compile(r"^FAILED (\S+)", re.MULTILINE)

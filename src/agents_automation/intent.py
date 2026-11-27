@@ -3,9 +3,12 @@
 1. A surface with a single role needs no choice.
 2. An explicit command ("/ask", "/summarize", "/describe") picks its role directly.
 3. Deterministic keyword rules decide the clear cases.
-4. Only when no rule (or more than one) matches, a small classifier model is asked. Its answer
-   must name exactly one role the surface allows.
-5. Anything else (no classifier, an outage, an unknown role, a malformed answer) becomes a
+4. A follow-up in an open conversation (an interview the caller started in this session) stays
+   with that role when no rule claims it for another one, so "Then my manager approves it" is
+   the next interview turn, not a new question.
+5. Only when none of that decides, a small classifier model is asked. Its answer must name
+   exactly one role the surface allows.
+6. Anything else (no classifier, an outage, an unknown role, a malformed answer) becomes a
    clarifying question. The router never guesses.
 
 The candidates always come from the trusted surface (``pipeline.router``), so untrusted text
@@ -28,7 +31,7 @@ from agents_automation.pipeline.router import allowed_roles
 
 USER_TEXT = Sensitivity.INTERNAL  # the message is user text: never sent below INTERNAL
 
-How = Literal["surface", "command", "rule", "model", "clarify"]
+How = Literal["surface", "command", "rule", "continue", "model", "clarify"]
 
 COMMANDS: Mapping[str, str] = MappingProxyType(
     {"/ask": "knowledge", "/summarize": "summarizer", "/describe": "interviewer"}
@@ -108,8 +111,15 @@ def _ask_classifier(
 
 
 def pick_role(
-    surface: str, text: str, classifier: PlacedModel | None, *, timeout_s: float = 10.0
+    surface: str,
+    text: str,
+    classifier: PlacedModel | None,
+    *,
+    continuing: str | None = None,
+    timeout_s: float = 10.0,
 ) -> Routed:
+    """``continuing`` is the role of the caller's open conversation in this session (set by the
+    trusted side, never by the text). It answers a follow-up that no command or rule claims."""
     roles = allowed_roles(surface)  # raises RoutingError for an unknown surface
     if len(roles) == 1:
         return Routed(roles[0], "surface", text, f"{surface} has one role")
@@ -124,6 +134,8 @@ def pick_role(
     matched = _rule_roles(text, roles)
     if len(matched) == 1:
         return Routed(matched[0], "rule", text, f"rule for {matched[0]}")
+    if continuing in roles and (not matched or continuing in matched):
+        return Routed(continuing, "continue", text, f"continues the open {continuing} session")
 
     reason = "no rule matched" if not matched else f"rules disagree: {', '.join(matched)}"
     if classifier is None:

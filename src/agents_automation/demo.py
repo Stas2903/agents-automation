@@ -1,18 +1,19 @@
 """``agents-demo``: replay synthetic interviews and the office chat offline, and show what the
-guards did."""
+guards did; ``--chat`` lets you type your own messages to the office chat."""
 
 from __future__ import annotations
 
 import argparse
 import sys
 import textwrap
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 from agents_automation.console import quiet_package_logs
 from agents_automation.conversation import SessionTranscript, run_session, scripted_user
+from agents_automation.directory import load_directory
 from agents_automation.interview.turn import Interviewer
 from agents_automation.interview.validator import model_repairer
-from agents_automation.office_demo import render_office_demo
+from agents_automation.office_demo import render_office_demo, run_chat
 from agents_automation.offline import Conversation, load_conversations
 from agents_automation.pipeline.tools import InMemoryStore
 
@@ -66,6 +67,16 @@ def render(conversation: Conversation, transcript: SessionTranscript) -> str:
     return "\n".join(lines)
 
 
+def _typed_lines(prompt: str) -> Iterator[str]:
+    """Lines typed at the console, until end of input or Ctrl+C."""
+    while True:
+        try:
+            yield input(prompt)
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -74,8 +85,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--roles", action="store_true", help="only the office chat (knowledge, summarizer, routing)"
     )
+    parser.add_argument(
+        "--chat", action="store_true", help="type your own messages to the office chat"
+    )
+    parser.add_argument(
+        "--user",
+        default="u-staff",
+        choices=sorted(load_directory().members),
+        help="who you are in --chat (default: u-staff)",
+    )
     parser.add_argument("ids", nargs="*", help="conversation ids to replay")
     args = parser.parse_args(argv)
+    if args.chat:
+        if args.all or args.roles or args.ids:
+            parser.error("--chat runs on its own")
+        with quiet_package_logs():
+            typed = sys.stdin.isatty()
+            prompt = f"{args.user:<11}> " if typed else ""
+            run_chat(args.user, _typed_lines(prompt), print, echo=not typed)
+        return 0
     conversations = load_conversations()
     if args.roles:
         ids: list[str] = []

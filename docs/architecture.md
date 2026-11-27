@@ -25,11 +25,17 @@ Six import-linter contracts in `pyproject.toml` keep these boundaries:
 2. A single-role surface needs no choice. Otherwise an explicit command (`/ask`,
    `/summarize`, `/describe`) picks its role, and keyword rules (run on the normalised view)
    decide the clear cases.
-3. No rule, or rules that disagree: a classifier model is asked. It must be placed with a
-   clearance for internal data (the message is user text), and its JSON answer must name exactly
-   one role the surface offers. The clarify reason says why it was not used, for example the
+3. A follow-up in an open interview stays with the interviewer. When the caller already has
+   interview turns in this session (known on the trusted side, never from the text), a
+   message that no rule claims for another role, such as "Then my manager approves it", is
+   the next interview turn without a classifier call. A command or another role's rule still
+   leaves the interview ("Do I need a receipt for that?" goes to knowledge), and an open role
+   the surface does not offer is never used.
+4. Still undecided (no rule, or rules that disagree): a classifier model is asked. It must be
+   placed with a clearance for internal data (the message is user text), and its JSON answer
+   must name exactly one role the surface offers. The clarify reason says why it was not used, for example the
    role it named.
-4. Anything else (no classifier, an outage, an unknown role, malformed output) becomes a
+5. Anything else (no classifier, an outage, an unknown role, malformed output) becomes a
    clarifying question. `route(surface, chosen)` then refuses any role the surface does not
    offer, so even a buggy caller cannot reach one.
 
@@ -144,7 +150,13 @@ Six import-linter contracts in `pyproject.toml` keep these boundaries:
 
 On the office chat the assistant keeps each user's interview history per session (another
 user reusing the session id gets neither the history nor the draft, and the store refuses to
-re-create an existing session). Finalize runs on the interview surface.
+re-create an existing session). That history is what keeps follow-ups with the interviewer
+(see routing, step 3). Finalize runs on the interview surface.
+
+`agents-demo --chat --user u-hr` runs this surface on typed messages, on the same offline
+stand-ins as the demo. It has no classifier, so a message that no command, rule or open
+interview decides gets the clarifying question, and its interviewer stand-in only asks for
+the next step.
 
 ## Finalize (`finalize.py`)
 
