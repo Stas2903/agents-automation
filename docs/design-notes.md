@@ -123,10 +123,9 @@ which model an OpenAI-compatible endpoint really serves.
 Routing on user text is unavoidable on a shared chat surface, but it must not become a way to
 pick capabilities. The surface comes from the trusted envelope and fixes the candidates. The
 router (rules first, then an open interview keeps its follow-ups, a classifier only for the
-ambiguous rest) may name one of them and
-nothing else, and `route(surface, chosen)` refuses anything outside the list again. An
-unusable answer leads to a clarifying question, not a guess, because a wrong guess sends the
-user's text to a role they did not ask for.
+ambiguous rest) may name one of them and nothing else, and `route(surface, chosen)` refuses
+anything outside the list again. An unusable answer leads to a clarifying question, not a
+guess, because a wrong guess sends the user's text to a role they did not ask for.
 
 ## Why access control runs inside the SQL, not after retrieval
 

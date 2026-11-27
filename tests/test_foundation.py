@@ -343,3 +343,9 @@ def test_rules_that_disagree_without_the_open_role_still_go_to_the_classifier() 
 def test_an_open_role_the_surface_does_not_offer_is_never_reached(continuing: str) -> None:
     routed = pick_role("office_chat", "Then my manager approves it", None, continuing=continuing)
     assert (routed.role, routed.how) == (None, "clarify")
+
+
+@pytest.mark.parametrize("text", ["", "   ", chr(10), " " + chr(9) + " "])
+def test_empty_text_never_becomes_an_interview_turn(text: str) -> None:
+    routed = pick_role("office_chat", text, None, continuing="interviewer")
+    assert (routed.role, routed.how) == (None, "clarify")

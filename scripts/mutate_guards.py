@@ -829,15 +829,15 @@ MUTANTS: tuple[Mutant, ...] = (
     Mutant(
         "an open role the surface does not offer is reachable",
         f"{PKG}/intent.py",
-        "    if continuing in roles and (not matched or continuing in matched):",
-        "    if continuing and (not matched or continuing in matched):",
+        "    if text.strip() and continuing in roles and (not matched or continuing in matched):",
+        "    if text.strip() and continuing and (not matched or continuing in matched):",
         "test_an_open_role_the_surface_does_not_offer_is_never_reached",
     ),
     Mutant(
         "the open role wins over rules that do not name it",
         f"{PKG}/intent.py",
-        "    if continuing in roles and (not matched or continuing in matched):",
-        "    if continuing in roles:",
+        "    if text.strip() and continuing in roles and (not matched or continuing in matched):",
+        "    if text.strip() and continuing in roles:",
         "test_rules_that_disagree_without_the_open_role_still_go_to_the_classifier",
     ),
     Mutant(
@@ -874,6 +874,27 @@ MUTANTS: tuple[Mutant, ...] = (
         "                coverage(question, sentence),\n            )",
         "                0.0,\n            )",
         "test_a_heading_match_alone_goes_to_the_sentence_that_matches_by_itself",
+    ),
+    Mutant(
+        "empty text becomes an interview turn",
+        f"{PKG}/intent.py",
+        "    if text.strip() and continuing in roles and (not matched or continuing in matched):",
+        "    if continuing in roles and (not matched or continuing in matched):",
+        "test_empty_text_never_becomes_an_interview_turn",
+    ),
+    Mutant(
+        "/done does not close the interview",
+        f"{PKG}/assistant.py",
+        "            self._history.pop((session_id, user_id), None)",
+        "            pass",
+        "test_done_closes_the_open_interview_and_follow_ups_are_routed_afresh",
+    ),
+    Mutant(
+        "a failed first turn opens the interview",
+        f"{PKG}/assistant.py",
+        "        open_interview = bool(self._history.get((session_id, user_id)))",
+        "        open_interview = (session_id, user_id) in self._history",
+        "test_a_failed_first_turn_does_not_open_the_interview",
     ),
 )
 

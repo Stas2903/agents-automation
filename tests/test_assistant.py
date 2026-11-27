@@ -8,14 +8,14 @@ import json
 
 import pytest
 
-from agents_automation.assistant import OfficeAssistant
+from agents_automation.assistant import DONE_REPLY, NOTHING_OPEN_REPLY, OfficeAssistant
 from agents_automation.demo import main as demo_main
 from agents_automation.intent import CLARIFY_REPLY, classifier_answer
 from agents_automation.interview.turn import Interviewer
 from agents_automation.knowledge.role import NO_SOURCE_REPLY
 from agents_automation.llm import Message
 from agents_automation.llm.boundary import PlacedModel
-from agents_automation.llm.fakes import ScriptedModel
+from agents_automation.llm.fakes import ScriptedModel, ScriptExhaustedError
 from agents_automation.llm.text import fence_untrusted
 from agents_automation.office import SELF_HOSTED, build_office_data, knowledge_role, summarizer_role
 from agents_automation.office_demo import CHAT_QUESTIONS, run_chat
@@ -245,9 +245,52 @@ def test_demo_chat_reads_stdin(
 
 
 @pytest.mark.parametrize(
-    "argv", [["--chat", "--roles"], ["--chat", "--all"], ["--chat", "x"], ["--chat", "--user", "x"]]
+    "argv",
+    [
+        ["--chat", "--roles"],
+        ["--chat", "--all"],
+        ["--chat", "x"],
+        ["--chat", "--user", "x"],
+        ["--user", "u-hr"],
+    ],
 )
 def test_demo_chat_refuses_other_modes_and_unknown_users(argv: list[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         demo_main(argv)
     assert exc.value.code == 2
+
+
+# --- /done and failed turns ---------------------------------------------------------------
+
+
+def test_done_closes_the_open_interview_and_follow_ups_are_routed_afresh() -> None:
+    assistant = _assistant(classifier_answer(None), interviewer_replies=("First step?",))
+    assistant.handle("u-staff", "I want to describe how our expense process works", session_id="s")
+    done = assistant.handle("u-staff", " /DONE ", session_id="s")
+    assert (done.role, done.how, done.reply, done.detail) == (
+        "interviewer",
+        "command",
+        DONE_REPLY,
+        "interview closed",
+    )
+    after = assistant.handle("u-staff", "First I fill in the form", session_id="s")
+    assert (after.role, after.how) == (None, "clarify")
+
+
+def test_done_with_nothing_open_says_so_and_leaves_other_users_interviews_open() -> None:
+    assistant = _assistant(interviewer_replies=("First step?", "And then?"))
+    assistant.handle("u-staff", "I want to describe how our expense process works", session_id="s")
+    other = assistant.handle("u-hr", "/done", session_id="s")
+    assert (other.reply, other.detail) == (NOTHING_OPEN_REPLY, "nothing open")
+    still = assistant.handle("u-staff", "First I fill in the form", session_id="s")
+    assert (still.role, still.how, still.reply) == ("interviewer", "continue", "And then?")
+
+
+def test_a_failed_first_turn_does_not_open_the_interview() -> None:
+    assistant = _assistant(classifier_answer(None))  # the interviewer has no reply at all
+    with pytest.raises(ScriptExhaustedError):
+        assistant.handle(
+            "u-staff", "I want to describe how our expense process works", session_id="s"
+        )
+    got = assistant.handle("u-staff", "First I fill in the form", session_id="s")
+    assert (got.role, got.how) == (None, "clarify")

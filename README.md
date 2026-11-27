@@ -9,7 +9,7 @@ A multi-role LLM assistant for office work. It answers questions from company do
 - **Confidential data stays with cleared models.** Every knowledge and summarizer call goes to a model cleared for the highest label among its inputs, and the user's question counts as internal data. If no model is cleared, nothing is sent.
 - **It does not claim what did not happen.** A "saved" claim is checked against a ledger of what the code did. A promise to email or remind someone is caught, because no tool for it exists.
 - **Planted instructions are stopped.** In a finished step list the full three-layer screen holds them for a human. In documents and chat messages, text that matches the pattern layer is quarantined before any model sees it.
-- **Every guard is proven by breaking it.** 118 unit mutants and 8 eval mutants each switch one guard off, and the tests or the scenario gate turn red every time.
+- **Every guard is proven by breaking it.** 121 unit mutants and 8 eval mutants each switch one guard off, and the tests or the scenario gate turn red every time.
 
 This is an independent project, written from scratch on my own time. It contains no employer code, prompts or data. All data here is synthetic and hand-written for this repository.
 
@@ -39,7 +39,7 @@ uv run agents-eval --runs 2               # scenario matrix + hard gate
 uv run agents-eval --runs 2 --mutant acl-off   # the harness catches it
 ```
 
-In `--chat` you are one of the synthetic users (`u-staff`, `u-hr`, `u-finance`, `u-it`, `u-lead`, `u-office`), and the banner shows which documents and channels that user may read. Plain questions, summary requests and "I want to describe our ... process" are routed by rules; `/ask`, `/summarize` and `/describe` pick a role directly, and `/quit` leaves. Once an interview is open, follow-ups stay with it. The offline chat has no intent classifier, so a message nothing recognises gets a question back.
+In `--chat` you are one of the synthetic users (`u-staff`, `u-hr`, `u-finance`, `u-it`, `u-lead`, `u-office`), and the banner shows which documents and channels that user may read. Plain questions, summary requests and "I want to describe our ... process" are routed by rules; `/ask`, `/summarize` and `/describe` pick a role directly, and `/quit` leaves. Once an interview is open, follow-ups stay with it until `/done`. The offline chat has no intent classifier, so a message nothing recognises gets a question back.
 
 Excerpt of `agents-demo --roles` (`...` marks lines left out):
 
@@ -133,9 +133,9 @@ Walk-through: [docs/architecture.md](docs/architecture.md). Why each guard is bu
 
 ## How it is tested
 
-- **1015 tests, all offline.** The suite blocks outbound connections. The model seam is the only way to reach a model, and the fakes sit exactly at that seam.
+- **1023 tests, all offline.** The suite blocks outbound connections. The model seam is the only way to reach a model, and the fakes sit exactly at that seam.
 - **Contract tables.** The save-claim, promise and injection detectors are defined by synthetic MUST-FIRE / MUST-NOT-FIRE tables, and the intent rules by a routing table. Access control gets cross-user tables, and accepted false positives are pinned as such.
-- **Unit mutants.** `scripts/mutate_guards.py` flips 118 critical guards one at a time in a temp copy, and each must be killed by its named test. All 118 are killed.
+- **Unit mutants.** `scripts/mutate_guards.py` flips 121 critical guards one at a time in a temp copy, and each must be killed by its named test. All 121 are killed.
 - **Eval mutants.** `agents-eval --mutant NAME` runs the scenarios with one guard switched off and succeeds only if the hard gate fails. There are 8: claim detection, injection screening, validation, access control, data boundary, grounded answers, summary citations, promises. A test pins exactly which scenarios each one must fail.
 - **Static checks.** ruff, mypy --strict, and six import-linter contracts. One of them: the three roles never import each other.
 
@@ -150,7 +150,7 @@ CI runs all of the above offline: [.github/workflows/ci.yml](.github/workflows/c
 - **Live mode is limited.** `--live` replaces the interviewer, the simulated users and the judges. The role scenarios always run on the offline stand-ins, and no live results are published here.
 - **Only the knowledge and summarizer calls are label-routed.** The interviewer, the intent classifier (which must be cleared for internal data), the injection judge and the repairer see the user's own text and are configured by the operator, not routed by label.
 - **Documents and chat get the pattern layer only.** Text that matches it is quarantined, but documents and chat messages do not go through the prefilter or the judge. Subtler planted text can reach the answer and summary prompts, inside the untrusted fence.
-- **The office chat runs interview turns, not finalize.** It keeps each user's history, and follow-ups stay with an open interview unless a command or another role's rule claims them, but finalize (validation, screening, submission) happens on the interview surface.
+- **The office chat runs interview turns, not finalize.** It keeps each user's history, and follow-ups stay with an open interview (until `/done`) unless a command or another role's rule claims them, but finalize (validation, screening, submission) happens on the interview surface.
 - **The summarizer has defaults.** Without a channel it reads #general, and without a period it recognises, the last 7 days. A request that names more than one period gets a question back instead of a guess.
 - **Labels and clearances are declared, not verified.** Sensitivity labels come with the data and placements come from configuration. Model families are declared too: the harness refuses a judge whose declared family matches the interviewer's, but it cannot verify what an endpoint really serves.
 - **Small stand-ins for real infrastructure.** An in-memory store and SQLite replace real storage. Ingest updates and removes chunks of the documents it is given, but it does not delete documents that disappeared from the corpus.

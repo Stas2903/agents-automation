@@ -134,7 +134,7 @@ def pick_role(
     matched = _rule_roles(text, roles)
     if len(matched) == 1:
         return Routed(matched[0], "rule", text, f"rule for {matched[0]}")
-    if continuing in roles and (not matched or continuing in matched):
+    if text.strip() and continuing in roles and (not matched or continuing in matched):
         return Routed(continuing, "continue", text, f"continues the open {continuing} session")
 
     reason = "no rule matched" if not matched else f"rules disagree: {', '.join(matched)}"

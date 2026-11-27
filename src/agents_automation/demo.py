@@ -90,19 +90,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--user",
-        default="u-staff",
         choices=sorted(load_directory().members),
         help="who you are in --chat (default: u-staff)",
     )
     parser.add_argument("ids", nargs="*", help="conversation ids to replay")
     args = parser.parse_args(argv)
+    if args.user and not args.chat:
+        parser.error("--user only applies to --chat")
     if args.chat:
         if args.all or args.roles or args.ids:
             parser.error("--chat runs on its own")
+        user = args.user or "u-staff"
         with quiet_package_logs():
             typed = sys.stdin.isatty()
-            prompt = f"{args.user:<11}> " if typed else ""
-            run_chat(args.user, _typed_lines(prompt), print, echo=not typed)
+            prompt = f"{user:<11}> " if typed else ""
+            run_chat(user, _typed_lines(prompt), print, echo=not typed)
         return 0
     conversations = load_conversations()
     if args.roles:

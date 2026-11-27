@@ -29,12 +29,13 @@ Six import-linter contracts in `pyproject.toml` keep these boundaries:
    interview turns in this session (known on the trusted side, never from the text), a
    message that no rule claims for another role, such as "Then my manager approves it", is
    the next interview turn without a classifier call. A command or another role's rule still
-   leaves the interview ("Do I need a receipt for that?" goes to knowledge), and an open role
-   the surface does not offer is never used.
+   leaves the interview ("Do I need a receipt for that?" goes to knowledge), empty text never
+   continues it, and an open role the surface does not offer is never used. `/done` closes the
+   interview, so the next message is routed afresh.
 4. Still undecided (no rule, or rules that disagree): a classifier model is asked. It must be
    placed with a clearance for internal data (the message is user text), and its JSON answer
-   must name exactly one role the surface offers. The clarify reason says why it was not used, for example the
-   role it named.
+   must name exactly one role the surface offers. The clarify reason says why it was not
+   used, for example the role it named.
 5. Anything else (no classifier, an outage, an unknown role, malformed output) becomes a
    clarifying question. `route(surface, chosen)` then refuses any role the surface does not
    offer, so even a buggy caller cannot reach one.

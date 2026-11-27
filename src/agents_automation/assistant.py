@@ -19,6 +19,9 @@ from agents_automation.pipeline.planner import Request
 from agents_automation.summarizer.role import SummarizerRole
 
 SURFACE = "office_chat"
+DONE_COMMAND = "/done"  # leaves an open interview, so follow-ups are routed afresh again
+DONE_REPLY = "Okay, I have closed this interview here. Nothing was submitted."
+NOTHING_OPEN_REPLY = "There is no open interview to close."
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,11 @@ class OfficeAssistant:
         self, user_id: str, text: str, *, session_id: str, budget: TurnBudget | None = None
     ) -> AssistantReply:
         open_interview = bool(self._history.get((session_id, user_id)))
+        if text.strip().lower() == DONE_COMMAND:
+            self._history.pop((session_id, user_id), None)
+            if open_interview:
+                return AssistantReply("interviewer", "command", DONE_REPLY, "interview closed")
+            return AssistantReply("interviewer", "command", NOTHING_OPEN_REPLY, "nothing open")
         routed = pick_role(
             SURFACE, text, self.classifier, continuing="interviewer" if open_interview else None
         )

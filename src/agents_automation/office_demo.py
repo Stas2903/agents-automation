@@ -136,8 +136,9 @@ def chat_banner(data: OfficeData, user: str) -> list[str]:
         *_wrap(
             "how",
             "Ask a question, ask for a summary of a channel, or describe a workflow. "
-            "/ask, /summarize and /describe pick a role directly; /quit leaves. Offline there "
-            "is no intent classifier, so a message no rule recognises gets a question back.",
+            "/ask, /summarize and /describe pick a role directly. Once an interview is open, "
+            "follow-ups stay with it until /done; /quit leaves. Offline there is no intent "
+            "classifier, so any other message no rule recognises gets a question back.",
         ),
     ]
 
